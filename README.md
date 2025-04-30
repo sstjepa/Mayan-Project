@@ -22,8 +22,8 @@ substitutions, and a test mode with RTP calculation.
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/sstjepa/mayan-slot-game.git
-cd mayan-slot-game
+git clone https://github.com/sstjepa/Mayan-Project.git
+cd Mayan-Project
 ```
 
 ### 2. Start a Local Server Using Deno
