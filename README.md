@@ -31,7 +31,7 @@ cd Mayan-Project
 You can serve the project using Deno’s standard file server:
 
 ```bash
-deno run --allow-read --allow-net https://deno.land/std@0.224.0/http/file_server.ts
+deno run --allow-read --allow-net server.ts
 ```
 
 This will serve the current directory on:
