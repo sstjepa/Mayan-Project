@@ -179,10 +179,15 @@ class MayanSlotGame {
           this.spinButton.addEventListener('click', () => this.handleSpin());
           controls.appendChild(this.spinButton);
 
+          // DiagControls container
+          const diagControls = document.createElement('div');
+          diagControls.className = 'diagControls';
+          this.container.appendChild(diagControls);
+
           // Test spin control
           const testSpinControl = document.createElement('div');
           testSpinControl.className = 'testspin-control';
-          controls.appendChild(testSpinControl);
+          diagControls.appendChild(testSpinControl);
 
           const testSpinLabel = document.createElement('label');
           testSpinLabel.textContent = 'Test spins: ';
@@ -199,9 +204,24 @@ class MayanSlotGame {
           this.testSpinButton.className = 'testspin-button';
           this.testSpinButton.textContent = 'TEST';
           this.testSpinButton.addEventListener('click', () => this.handleTestSpin());
-          //this.testSpinButton.addEventListener('click', () => this.runDiagnosticTest());
           testSpinControl.appendChild(this.testSpinButton);
 
+          // Simulate button
+          const testControl = document.createElement('div');
+          testControl.className = 'test-control';
+          diagControls.appendChild(testControl);
+
+          this.simulateButton = document.createElement('button');
+          this.simulateButton.className = 'simulate-button';
+          this.simulateButton.textContent = 'Simulate';
+          this.simulateButton.addEventListener('click', () => this.runSimulateTest());
+          testControl.appendChild(this.simulateButton);
+
+          this.runDiagButton = document.createElement('button');
+          this.runDiagButton.className = 'run-diagnostic-button';
+          this.runDiagButton.textContent = 'Run Diagnostics';
+          this.runDiagButton.addEventListener('click', () => this.runDiagnosticTest());
+          testControl.appendChild(this.runDiagButton);
 
           // Results log
           this.log = document.createElement('div');
@@ -244,6 +264,8 @@ class MayanSlotGame {
           this.isSpinning = true;
           this.spinButton.disabled = true;
           this.testSpinButton.disabled = true;
+          this.simulateButton.disabled = true;
+          this.runDiagButton.disabled = true;
 
           // Clear previous win displays
           this.winDisplay.textContent = 'Spinning...';
@@ -270,8 +292,61 @@ class MayanSlotGame {
           this.isSpinning = false;
           this.spinButton.disabled = false;
           this.testSpinButton.disabled = false;
+          this.simulateButton.disabled = false;
+          this.runDiagButton.disabled = false;
 
           return winAmount;
+     }
+
+     async animateSpin() {
+          return new Promise(resolve => {
+               // Reset symbol classes
+               document.querySelectorAll('.symbol').forEach(symbol => {
+                    symbol.className = 'symbol';
+                    symbol.textContent = '?';
+               });
+
+               // Random delay for each reel to create a cascading stop effect
+               const reelDelays = [100, 200, 300, 400, 500];
+
+               // Spin each reel
+               for (let reel = 0; reel < 5; reel++) {
+                    setTimeout(() => {
+                         // Select a random starting position on this reel
+                         const startPos = Math.floor(Math.random() * (this.reels[reel].length));
+                         this.currentPositions[reel] = startPos;
+
+                         // Update the 3 visible positions
+                         for (let pos = 0; pos < 3; pos++) {
+                              const reelPos = (startPos + pos) % this.reels[reel].length;
+                              const symbolId = this.reels[reel][reelPos];
+                              this.display[pos][reel] = symbolId;
+
+                              // Update the UI
+                              const symbolElement = document.getElementById(`symbol-${pos}-${reel}`);
+                              symbolElement.textContent = this.getShortSymbolName(symbolId);
+
+                              // Add special styling for Wild and Scatter
+                              if (symbolId === 0) symbolElement.classList.add('wild');
+                              if (symbolId === 11) symbolElement.classList.add('scatter');
+                         }
+
+                         // If this is the last reel, resolve the promise
+                         if (reel === 4) {
+                              setTimeout(resolve, 7);
+                         }
+                    }, reelDelays[reel]);
+               }
+          });
+     }
+
+     getShortSymbolName(symbolId) {
+          const name = this.symbols[symbolId];
+          // Get first part of symbol name before parenthesis or first word
+          if (name.includes('(')) {
+               return name.split('(')[0].trim();
+          }
+          return name;
      }
 
      async handleTestSpin() {
@@ -287,6 +362,8 @@ class MayanSlotGame {
           this.isSpinning = true;
           this.spinButton.disabled = true;
           this.testSpinButton.disabled = true;
+          this.simulateButton.disabled = true;
+          this.runDiagButton.disabled = true;
 
           // Reset RTP tracking for this test session
           this.RTPBet = 0;
@@ -344,6 +421,8 @@ class MayanSlotGame {
                     this.isSpinning = false;
                     this.spinButton.disabled = false;
                     this.testSpinButton.disabled = false;
+                    this.simulateButton.disabled = false;
+                    this.runDiagButton.disabled = false;
 
                     // Reset UI to default view
                     this.setDefaultDisplay();
@@ -359,7 +438,7 @@ class MayanSlotGame {
           // Generate new random results
           for (let reel = 0; reel < 5; reel++) {
                // Select a random starting position on this reel
-               const startPos = Math.floor(Math.random() * (this.reels[reel].length - 3));
+               const startPos = Math.floor(Math.random() * this.reels[reel].length);
 
                // Update the 3 visible positions
                for (let pos = 0; pos < 3; pos++) {
@@ -368,82 +447,6 @@ class MayanSlotGame {
                     this.display[pos][reel] = symbolId;
                }
           }
-     }
-
-     // Check wins without updating UI
-     checkWinsNoUI(betAmount = 1.0) {
-          let totalWin = 0;
-
-          // Reuse these arrays
-          const symbolsInLine = new Array(5);
-
-          // Check each payline
-          for (let lineNum = 0; lineNum < this.paylines.length; lineNum++) {
-               const payline = this.paylines[lineNum];
-
-               // Get the symbols on this payline
-               for (let reel = 0; reel < 5; reel++) {
-                    const pos = payline[reel];
-                    symbolsInLine[reel] = this.display[pos][reel];
-               }
-
-               // Calculate win without UI updates
-               const winAmount = this.calculateLineWin(symbolsInLine, betAmount);
-               totalWin += winAmount;
-          }
-
-          return totalWin;
-     }
-
-     async animateSpin() {
-          return new Promise(resolve => {
-               // Reset symbol classes
-               document.querySelectorAll('.symbol').forEach(symbol => {
-                    symbol.className = 'symbol';
-                    symbol.textContent = '?';
-               });
-
-               // Random delay for each reel to create a cascading stop effect
-               const reelDelays = [100, 200, 300, 400, 500];
-
-               // Spin each reel
-               for (let reel = 0; reel < 5; reel++) {
-                    setTimeout(() => {
-                         // Select a random starting position on this reel
-                         const startPos = Math.floor(Math.random() * (this.reels[reel].length - 3));
-                         this.currentPositions[reel] = startPos;
-
-                         // Update the 3 visible positions
-                         for (let pos = 0; pos < 3; pos++) {
-                              const reelPos = (startPos + pos) % this.reels[reel].length;
-                              const symbolId = this.reels[reel][reelPos];
-                              this.display[pos][reel] = symbolId;
-
-                              // Update the UI
-                              const symbolElement = document.getElementById(`symbol-${pos}-${reel}`);
-                              symbolElement.textContent = this.getShortSymbolName(symbolId);
-
-                              // Add special styling for Wild and Scatter
-                              if (symbolId === 0) symbolElement.classList.add('wild');
-                              if (symbolId === 11) symbolElement.classList.add('scatter');
-                         }
-
-                         // If this is the last reel, resolve the promise
-                         if (reel === 4) {
-                              setTimeout(resolve, 7);
-                         }
-                    }, reelDelays[reel]);
-               }
-          });
-     }
-
-     getShortSymbolName(symbolId) {
-          const name = this.symbols[symbolId];
-          // Get first part of symbol name before parenthesis or first word
-          if (name.includes('(')) {
-               return name.split('(')[0].trim();
-          }
-          return name;
      }
 
      checkWins(betAmount = 2.0) {
@@ -502,6 +505,31 @@ class MayanSlotGame {
           console.log('symbolsInLine:', symbolsInLine.length);
           console.log('positions:', positions.length);
           console.log('winningLines:', winningLines.length);
+          return totalWin;
+     }
+
+     // Check wins without updating UI
+     checkWinsNoUI(betAmount = 1.0) {
+          let totalWin = 0;
+
+          // Reuse these arrays
+          const symbolsInLine = new Array(5);
+
+          // Check each payline
+          for (let lineNum = 0; lineNum < this.paylines.length; lineNum++) {
+               const payline = this.paylines[lineNum];
+
+               // Get the symbols on this payline
+               for (let reel = 0; reel < 5; reel++) {
+                    const pos = payline[reel];
+                    symbolsInLine[reel] = this.display[pos][reel];
+               }
+
+               // Calculate win without UI updates
+               const winAmount = this.calculateLineWin(symbolsInLine, betAmount);
+               totalWin += winAmount;
+          }
+
           return totalWin;
      }
 
@@ -569,7 +597,96 @@ class MayanSlotGame {
      }
 
 
-     // Diagnostic tests to validate game mechanics
+     // Run diagnostic tests to validate game mechanics
+     runDiagnosticTest() {
+          this.logMessage("Running diagnostic tests...");
+
+          if (this.isSpinning) return;
+
+          // Disable controls during test
+          this.isSpinning = true;
+          this.spinButton.disabled = true;
+          this.testSpinButton.disabled = true;
+          this.simulateButton.disabled = true;
+          this.runDiagButton.disabled = true;
+
+          // Analyze reel strips
+          this.analyzeReelStrips();
+
+          // Validate random number generation
+          this.validateRandomGeneration();
+
+          // Test payline processing
+          this.verifyPaylines();
+
+          // Run a controlled test with detailed logging
+          this.logMessage("Running 1,000,000 test spins with detailed analysis...");
+
+          let totalBet = 0;
+          let totalWin = 0;
+          const winsBySymbol = Array(12).fill(0);
+          const winsByCount = [0, 0, 0]; // For 3, 4, 5 of a kind
+
+          for (let i = 0; i < 1000000; i++) {
+               this.betAmount = parseFloat(this.betInput.value);
+               const bet = this.betAmount;
+               totalBet += bet;
+
+               // Generate spin result
+               this.fastSpin();
+
+               const winAmount = this.checkWinsNoUI(this.betAmount);
+               totalWin += winAmount;
+               if (winAmount > 0) {
+                    // Track wins by symbol
+                    for (let sym = 0; sym < 12; sym++) {
+                         if (this.display[0][0] === sym || this.display[1][0] === sym || this.display[2][0] === sym) {
+                              winsBySymbol[sym]++;
+                         }
+                    }
+
+                    // Track wins by count
+                    const count = this.display.filter(sym => sym === this.display[0][0]).length;
+                    if (count >= 3 && count <= 5) {
+                         winsByCount[count - 3]++;
+                    }
+               }
+
+          }
+
+
+
+          // Output detailed results
+          this.logMessage(`Diagnostic test completed.`);
+          this.logMessage(`Total bet: ${totalBet.toFixed(2)}`);
+          this.logMessage(`Total win: ${totalWin.toFixed(2)}`);
+          this.logMessage(`RTP: ${(totalWin / totalBet * 100).toFixed(2)}%`);
+
+          // Output wins by symbol
+          console.log("Wins by symbol:");
+          for (let sym = 0; sym < 12; sym++) {
+               if (winsBySymbol[sym] > 0) {
+                    console.log(`${this.symbols[sym]}: ${winsBySymbol[sym]} wins`);
+               }
+          }
+
+          // Output wins by match count
+          console.log("Wins by match count:");
+          const matchLabels = ["3 of a kind", "4 of a kind", "5 of a kind"];
+          for (let i = 0; i < 3; i++) {
+               console.log(`${matchLabels[i]}: ${winsByCount[i]} wins`);
+          }
+
+          // Re-enable controls
+          this.isSpinning = false;
+          this.spinButton.disabled = false;
+          this.testSpinButton.disabled = false;
+          this.simulateButton.disabled = false;
+          this.runDiagButton.disabled = false;
+
+          this.winDisplay.textContent = 'Diagnostic test done.';
+          this.paylineDisplay.textContent = `Diagnostic test has completed.`;
+     }
      validateRandomGeneration() {
           // Count occurrences of each symbol on each reel
           const counts = Array(5).fill().map(() => Array(12).fill(0));
@@ -649,76 +766,109 @@ class MayanSlotGame {
           }
      }
 
-     runDiagnosticTest() {
-          this.logMessage("Running diagnostic tests...");
 
-          // Analyze reel strips
-          this.analyzeReelStrips();
+     // Run simulation test for all combinations
+     runSimulateTest() {
+          this.logMessage("Running simulation test for all combinations...");
+          this.paylineDisplay.textContent = 'Simulation every possible combination in progress...';
+          if (this.isSpinning) return;
 
-          // Validate random number generation
-          this.validateRandomGeneration();
+          this.balance = 1000000;
 
-          // Test payline processing
-          this.verifyPaylines();
+          // Disable controls during test
+          this.isSpinning = true;
+          this.spinButton.disabled = true;
+          this.testSpinButton.disabled = true;
+          this.simulateButton.disabled = true;
+          this.runDiagButton.disabled = true;
 
-          // Run a controlled test with detailed logging
-          this.logMessage("Running 1,000,000 test spins with detailed analysis...");
+          // Reset RTP tracking for this test session
+          this.RTPBet = 0;
+          this.RTPWin = 0;
 
-          let totalBet = 0;
-          let totalWin = 0;
-          const winsBySymbol = Array(12).fill(0);
-          const winsByCount = [0, 0, 0]; // For 3, 4, 5 of a kind
+          // Starting positions for each reel
+          const positions = [0, 0, 0, 0, 0];
+          const reelLengths = this.reels.map(reel => reel.length);
+          let combinationsCount = 0;
+          let winningCombinations = 0;
 
-          for (let i = 0; i < 1000000; i++) {
-               this.betAmount = parseFloat(this.betInput.value);
-               const bet = this.betAmount;
-               totalBet += bet;
+          // Process combinations in batches to prevent UI freezing
+          const processBatch = () => {
+               const batchSize = 1000;
+               let batchCount = 0;
 
-               // Generate spin result
-               this.fastSpin();
-
-               const winAmount = this.checkWinsNoUI(this.betAmount);
-               totalWin += winAmount;
-               if (winAmount > 0) {
-                    // Track wins by symbol
-                    for (let sym = 0; sym < 12; sym++) {
-                         if (this.display[0][0] === sym || this.display[1][0] === sym || this.display[2][0] === sym) {
-                              winsBySymbol[sym]++;
+               while (batchCount < batchSize) {
+                    // Set the display based on current positions
+                    for (let reel = 0; reel < 5; reel++) {
+                         for (let pos = 0; pos < 3; pos++) {
+                              const reelPos = (positions[reel] + pos) % reelLengths[reel];
+                              this.display[pos][reel] = this.reels[reel][reelPos];
                          }
                     }
 
-                    // Track wins by count
-                    const count = this.display.filter(sym => sym === this.display[0][0]).length;
-                    if (count >= 3 && count <= 5) {
-                         winsByCount[count - 3]++;
+                    // Check for wins
+                    const betAmount = parseFloat(this.betInput.value) || 2.0;
+                    this.RTPBet += betAmount;
+                    const winAmount = this.checkWinsNoUI(betAmount);
+                    this.RTPWin += winAmount;
+
+                    if (winAmount > 0) {
+                         winningCombinations++;
                     }
+
+                    combinationsCount++;
+
+                    // Move to next combination - start with rightmost reel
+                    positions[4]++;
+                    // If we've gone through all positions on a reel, reset it and increment the next reel
+                    for (let r = 4; r > 0; r--) {
+                         if (positions[r] >= reelLengths[r]) {
+                              positions[r] = 0;
+                              positions[r - 1]++;
+                         }
+                    }
+
+                    // If we've gone through all positions on the first reel, we're done
+                    if (positions[0] >= reelLengths[0]) {
+                         break;
+                    }
+
+                    batchCount++;
                }
 
-          }
+               // Update progress display
+               this.winDisplay.textContent = `Combinations tested: ${combinationsCount}`;
 
-          // Output detailed results
-          this.logMessage(`Diagnostic test completed.`);
-          this.logMessage(`Total bet: ${totalBet.toFixed(2)}`);
-          this.logMessage(`Total win: ${totalWin.toFixed(2)}`);
-          this.logMessage(`RTP: ${(totalWin / totalBet * 100).toFixed(2)}%`);
 
-          // Output wins by symbol
-          console.log("Wins by symbol:");
-          for (let sym = 0; sym < 12; sym++) {
-               if (winsBySymbol[sym] > 0) {
-                    console.log(`${this.symbols[sym]}: ${winsBySymbol[sym]} wins`);
+               // If we're not done, schedule the next batch
+               if (positions[0] < reelLengths[0]) {
+                    setTimeout(processBatch, 0);
+               } else {
+                    // Test complete
+                    const RTP = (this.RTPWin / this.RTPBet) * 100;
+
+                    this.logMessage(`Simulation completed.`, false);
+                    this.logMessage(`Total combinations tested: ${combinationsCount}`, false);
+                    this.logMessage(`Winning combinations: ${winningCombinations} (${(winningCombinations / combinationsCount * 100).toFixed(2)}%)`, false);
+                    this.logMessage(`RTP: ${RTP.toFixed(2)}%`, false);
+                    this.logMessage(`Total Won: ${this.RTPWin.toFixed(2)}`, false);
+                    this.logMessage(`Total Bet: ${this.RTPBet.toFixed(2)}`, false);
+
+                    // Re-enable controls
+                    this.isSpinning = false;
+                    this.spinButton.disabled = false;
+                    this.testSpinButton.disabled = false;
+                    this.simulateButton.disabled = false;
+                    this.runDiagButton.disabled = false;
+
+                    // Reset UI to default view
+                    this.setDefaultDisplay();
                }
-          }
+          };
 
-          // Output wins by match count
-          console.log("Wins by match count:");
-          const matchLabels = ["3 of a kind", "4 of a kind", "5 of a kind"];
-          for (let i = 0; i < 3; i++) {
-               console.log(`${matchLabels[i]}: ${winsByCount[i]} wins`);
-          }
+          // Start the batch process
+          processBatch();
      }
-
-
 
      updateBalanceDisplay() {
           this.balanceDisplay.textContent = `Balance: ${this.balance.toFixed(2)}`;

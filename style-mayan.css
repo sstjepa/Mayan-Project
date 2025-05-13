@@ -15,6 +15,7 @@
      margin-bottom: 20px;
      text-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
      background: linear-gradient(to right, #ffd700, #ffcc00);
+     background-clip: text;
      -webkit-background-clip: text;
      -webkit-text-fill-color: transparent;
 }
@@ -110,6 +111,13 @@
 
 .controls {
      display: flex;
+     justify-content: space-around;
+     align-items: center;
+     margin-bottom: 20px;
+}
+
+.diagControls {
+     display: flex;
      justify-content: space-between;
      align-items: center;
      margin-bottom: 20px;
@@ -145,10 +153,59 @@ button {
 .testspin-button {
      background: linear-gradient(to bottom, #7b68ee, #4b0082);
      color: #fff;
+     font-weight: bold;
+     font-size: 1.2em;
+     padding: 12px 25px;
+     margin-left: 10px;
 }
 
 .testspin-button:hover {
+     transform: scale(1.05);
      background: linear-gradient(to bottom, #9370db, #663399);
+     box-shadow: 0 0 10px rgba(123, 104, 238, 0.7);
+}
+
+.testspin-button:disabled {
+     background: #888;
+     cursor: not-allowed;
+}
+
+.simulate-button {
+     background: linear-gradient(to top, #9bff74, #40ffcf);
+     color: #333;
+     font-weight: bold;
+     font-size: 1.2em;
+     padding: 12px 25px;
+     margin-right: 10px;
+}
+
+.simulate-button:hover {
+     transform: scale(1.05);
+     box-shadow: 0 0 10px rgba(155, 255, 116, 0.7);
+}
+
+.simulate-button:disabled {
+     background: #888;
+     cursor: not-allowed;
+}
+
+.run-diagnostic-button {
+     background: linear-gradient(to top, #ff6347, #ff4500);
+     color: #333;
+     font-weight: bold;
+     font-size: 1.2em;
+     padding: 12px 25px;
+     margin-left: 10px;
+}
+
+.run-diagnostic-button:hover {
+     transform: scale(1.05);
+     box-shadow: 0 0 10px rgba(255, 99, 71, 0.7);
+}
+
+.run-diagnostic-button:disabled {
+     background: #888;
+     cursor: not-allowed;
 }
 
 input {
