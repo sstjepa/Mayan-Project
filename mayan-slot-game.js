@@ -1,3 +1,4 @@
+// deno-lint-ignore-file prefer-const require-await
 class MayanSlotGame {
      constructor() {
           // Symbol definitions
@@ -69,11 +70,43 @@ class MayanSlotGame {
                [8, 8, 8]     // R5: Q
           ];
 
+          // Next scatter probability
+          this.scatterProbability = {
+               12: 0.0700, // 7%
+               13: 0.0700, // 7%
+               14: 0.0400, // 4%
+               15: 0.0029  // 0.29%
+          };
+
+          // Scatter multipliers
+          this.scatterMultiplier = [1, 2, 3, 4, 5, 10, 15, 20, 25, 50, 75, 500];
+
+          this.scatterMultiplierChance = {
+               1: 0.5,
+               2: 0.25,
+               3: 0.13,
+               4: 0.05,
+               5: 0.03,
+               10: 0.015,
+               15: 0.007,
+               20: 0.005,
+               25: 0.005,
+               50: 0.004,
+               75: 0.003,
+               500: 0.001
+          };
+
+          this.GrandJackpot = 2500;
+
+          // Initialize display
           this.display = Array(3).fill().map(() => Array(5).fill(0));
           this.currentPositions = [];
 
           // Game state
           this.isSpinning = false;
+          this.inBonusGame = false;
+          this.bonusFreeSpins = 0;
+          this.bonusCoins = [];
           this.balance = 1000;
           this.betAmount = 2.0;
           this.totalWon = 0;
@@ -179,6 +212,13 @@ class MayanSlotGame {
           this.spinButton.addEventListener('click', () => this.handleSpin());
           controls.appendChild(this.spinButton);
 
+          // Add bonus game simulation button
+          this.bonusGameButton = document.createElement('button');
+          this.bonusGameButton.className = 'bonus-game-button';
+          this.bonusGameButton.textContent = '🪙 BONUS GAME';
+          this.bonusGameButton.addEventListener('click', () => this.simulateBonusGame());
+          controls.appendChild(this.bonusGameButton);
+
           // DiagControls container
           const diagControls = document.createElement('div');
           diagControls.className = 'diagControls';
@@ -229,7 +269,25 @@ class MayanSlotGame {
           this.container.appendChild(this.log);
      }
 
+     // Get short symbol name for display
+     getShortSymbolName(symbolId) {
+          return this.symbols[symbolId] || '?';
+     }
+
+     // Add method to get stored coin multiplier
+     getCoinMultiplier(pos, reel) {
+          return this.coinMultipliers[`${pos}-${reel}`] || 1;
+     }
+
+     // Add method to set coin multiplier
+     setCoinMultiplier(pos, reel, multiplier) {
+          this.coinMultipliers[`${pos}-${reel}`] = multiplier;
+     }
+
      setDefaultDisplay() {
+          // Initialize coin multipliers storage
+          this.coinMultipliers = {};
+
           // Set the default display with J, K, A, 10, Q symbols
           for (let reel = 0; reel < 5; reel++) {
                for (let pos = 0; pos < 3; pos++) {
@@ -238,12 +296,16 @@ class MayanSlotGame {
 
                     const symbolElement = document.getElementById(`symbol-${pos}-${reel}`);
                     symbolElement.textContent = this.getShortSymbolName(symbolId);
-                    symbolElement.classList.remove('winning', 'wild', 'scatter'); // Clear previous classes
+                    symbolElement.classList.remove('winning', 'wild', 'scatter', 'bonus-coin', 'spinning', 'bonus-mode');
+
+                    // Add appropriate classes
+                    if (symbolId === 0) symbolElement.classList.add('wild');
                }
           }
           this.paylineDisplay.textContent = 'Spin to see winning lines';
      }
 
+     // Handle Spin button click
      async handleSpin() {
           if (this.isSpinning) return;
 
@@ -266,6 +328,8 @@ class MayanSlotGame {
           this.testSpinButton.disabled = true;
           this.simulateButton.disabled = true;
           this.runDiagButton.disabled = true;
+          this.bonusGameButton.disabled = true;
+          this.betInput.disabled = true;
 
           // Clear previous win displays
           this.winDisplay.textContent = 'Spinning...';
@@ -279,25 +343,49 @@ class MayanSlotGame {
           // Perform the spin animation
           await this.animateSpin();
 
-          // Check for wins
-          const winAmount = this.checkWins(this.betAmount);
+          // Check if bonus game was triggered
+          let scatterCount = 0;
+          for (let row = 0; row < 3; row++) {
+               for (let reel = 0; reel < 5; reel++) {
+                    if (this.display[row][reel] === 11) {
+                         scatterCount++;
+                    }
+               }
+          }
 
-          // Update balance and displays
-          this.balance += winAmount;
-          this.totalWon += winAmount;
-          this.updateBalanceDisplay();
-          this.winDisplay.textContent = `Win: ${winAmount.toFixed(2)}`;
+          // If bonus game is triggered, wait for it to complete
+          if (scatterCount >= 11) {
+               this.logMessage(`${scatterCount} Scatter symbols! Bonus game triggered!`, true);
 
-          // Re-enable controls
+               // Start bonus game and wait for it to complete
+               await new Promise(resolve => setTimeout(resolve, 150));
+               await this.handleBonusGame();
+          }
+          else {
+               // Check for wins
+               const winAmount = this.checkWins(this.betAmount);
+
+               // Update balance and displays
+               this.balance += winAmount;
+               this.totalWon += winAmount;
+               this.updateBalanceDisplay();
+               this.winDisplay.textContent = `Win: ${winAmount.toFixed(2)}`;
+
+          }
+
+          // Only re-enable controls after everything is complete
           this.isSpinning = false;
           this.spinButton.disabled = false;
           this.testSpinButton.disabled = false;
           this.simulateButton.disabled = false;
           this.runDiagButton.disabled = false;
+          this.bonusGameButton.disabled = false;
+          this.betInput.disabled = false;
 
-          return winAmount;
+          return scatterCount >= 11 ? 0 : winAmount;
      }
 
+     // Animate the spin of the reels
      async animateSpin() {
           return new Promise(resolve => {
                // Reset symbol classes
@@ -305,6 +393,9 @@ class MayanSlotGame {
                     symbol.className = 'symbol';
                     symbol.textContent = '?';
                });
+
+               // Initialize coin multipliers for this spin
+               this.coinMultipliers = {};
 
                // Random delay for each reel to create a cascading stop effect
                const reelDelays = [100, 200, 300, 400, 500];
@@ -324,11 +415,23 @@ class MayanSlotGame {
 
                               // Update the UI
                               const symbolElement = document.getElementById(`symbol-${pos}-${reel}`);
-                              symbolElement.textContent = this.getShortSymbolName(symbolId);
 
-                              // Add special styling for Wild and Scatter
+                              // For scatter symbols, generate and store multiplier
+                              if (symbolId === 11) {
+                                   const multiplier = this.getRandomMultiplier();
+                                   const value = this.betAmount * multiplier;
+
+                                   // Store the multiplier for this specific position
+                                   this.setCoinMultiplier(pos, reel, multiplier);
+
+                                   symbolElement.textContent = `${this.symbols[11]} x${value.toFixed(2)}`;
+                                   symbolElement.classList.add('scatter');
+                              } else {
+                                   symbolElement.textContent = this.getShortSymbolName(symbolId);
+                              }
+
+                              // Add special styling for Wild
                               if (symbolId === 0) symbolElement.classList.add('wild');
-                              if (symbolId === 11) symbolElement.classList.add('scatter');
                          }
 
                          // If this is the last reel, resolve the promise
@@ -340,15 +443,7 @@ class MayanSlotGame {
           });
      }
 
-     getShortSymbolName(symbolId) {
-          const name = this.symbols[symbolId];
-          // Get first part of symbol name before parenthesis or first word
-          if (name.includes('(')) {
-               return name.split('(')[0].trim();
-          }
-          return name;
-     }
-
+     // Handle Random spin simulations
      async handleTestSpin() {
           if (this.isSpinning) return;
 
@@ -364,6 +459,8 @@ class MayanSlotGame {
           this.testSpinButton.disabled = true;
           this.simulateButton.disabled = true;
           this.runDiagButton.disabled = true;
+          this.bonusGameButton.disabled = true;
+          this.betInput.disabled = true;
 
           // Reset RTP tracking for this test session
           this.RTPBet = 0;
@@ -372,6 +469,7 @@ class MayanSlotGame {
           // Fast test mode without animations
           const startTime = performance.now();
           let totalWon = 0;
+          let bonusTriggered = 0;
 
           // Run test spins in batches to avoid UI freezing
           const batchSize = 10000;
@@ -388,8 +486,26 @@ class MayanSlotGame {
                     // Fast spin without animation
                     this.fastSpin();
 
-                    // Get win amount
-                    const winAmount = this.checkWinsNoUI(this.betAmount);
+                    // Check for bonus game trigger
+                    let scatterCounter = 0;
+                    for (let row = 0; row < 3; row++) {
+                         for (let reel = 0; reel < 5; reel++) {
+                              if (this.display[row][reel] === 11) {
+                                   scatterCounter++;
+                              }
+                         }
+                    }
+
+                    let winAmount = 0;
+                    if (scatterCounter >= 11) {
+                         // Bonus game triggered
+                         bonusTriggered++;
+                         winAmount = this.simulateBonusNoUI(this.betAmount);
+                    } else {
+                         // Get win amount
+                         winAmount = this.checkWinsNoUI(this.betAmount);
+                    }
+
                     totalWon += winAmount;
                     this.RTPWin += winAmount;
                }
@@ -416,6 +532,7 @@ class MayanSlotGame {
                     this.logMessage(`RTP: ${this.RTP.toFixed(2)}%`, false);
                     this.logMessage(`Total Won: ${this.RTPWin.toFixed(2)}`, false);
                     this.logMessage(`Total Bet: ${this.RTPBet.toFixed(2)}`, false);
+                    this.logMessage(`Bonus Game Triggered: ${bonusTriggered} times`, false);
 
                     // Re-enable controls
                     this.isSpinning = false;
@@ -423,6 +540,8 @@ class MayanSlotGame {
                     this.testSpinButton.disabled = false;
                     this.simulateButton.disabled = false;
                     this.runDiagButton.disabled = false;
+                    this.bonusGameButton.disabled = false;
+                    this.betInput.disabled = false;
 
                     // Reset UI to default view
                     this.setDefaultDisplay();
@@ -433,8 +552,12 @@ class MayanSlotGame {
           runBatch();
      }
 
+
      // Fast spin method that skips animations
      fastSpin() {
+          // Initialize coin multipliers for this spin
+          this.coinMultipliers = {};
+
           // Generate new random results
           for (let reel = 0; reel < 5; reel++) {
                // Select a random starting position on this reel
@@ -445,6 +568,12 @@ class MayanSlotGame {
                     const reelPos = (startPos + pos) % this.reels[reel].length;
                     const symbolId = this.reels[reel][reelPos];
                     this.display[pos][reel] = symbolId;
+
+                    // Generate and store multiplier for coins
+                    if (symbolId === 11) {
+                         const multiplier = this.getRandomMultiplier();
+                         this.setCoinMultiplier(pos, reel, multiplier);
+                    }
                }
           }
      }
@@ -452,8 +581,19 @@ class MayanSlotGame {
      checkWins(betAmount = 2.0) {
           let totalWin = 0;
           let winningLines = [];
-          let symbolsInLine = [];
-          let positions = [];
+
+          // Count scatter symbols
+          let scatterCount = 0;
+          let scatterPositions = [];
+
+          for (let row = 0; row < 3; row++) {
+               for (let reel = 0; reel < 5; reel++) {
+                    if (this.display[row][reel] === 11) {
+                         scatterCount++;
+                         scatterPositions.push([row, reel]);
+                    }
+               }
+          }
 
           // Check each payline
           for (let lineNum = 0; lineNum < this.paylines.length; lineNum++) {
@@ -502,9 +642,6 @@ class MayanSlotGame {
                this.logMessage(`No win`, false);
           }
 
-          console.log('symbolsInLine:', symbolsInLine.length);
-          console.log('positions:', positions.length);
-          console.log('winningLines:', winningLines.length);
           return totalWin;
      }
 
@@ -534,7 +671,7 @@ class MayanSlotGame {
      }
 
      calculateLineWin(symbols, betAmount = 1.0) {
-          if (symbols.includes(0)) {  // Contains wild symbols
+          if (symbols.includes(0)) {
                // Try each possible symbol as a substitution for wilds
                let bestWin = 0;
 
@@ -548,7 +685,7 @@ class MayanSlotGame {
 
                     // Check for consecutive matches from left
                     const firstSymbol = substituted[0];
-                    if (firstSymbol === 11) continue;  // Scatter doesn't pay on lines
+                    if (firstSymbol === 11) continue;
 
                     let count = 1;
                     for (let i = 1; i < substituted.length; i++) {
@@ -596,7 +733,6 @@ class MayanSlotGame {
           return 0;
      }
 
-
      // Run diagnostic tests to validate game mechanics
      runDiagnosticTest() {
           this.logMessage("Running diagnostic tests...");
@@ -609,6 +745,8 @@ class MayanSlotGame {
           this.testSpinButton.disabled = true;
           this.simulateButton.disabled = true;
           this.runDiagButton.disabled = true;
+          this.bonusGameButton.disabled = true;
+          this.betInput.disabled = true;
 
           // Analyze reel strips
           this.analyzeReelStrips();
@@ -624,8 +762,8 @@ class MayanSlotGame {
 
           let totalBet = 0;
           let totalWin = 0;
+          let bonusTriggered = 0;
           const winsBySymbol = Array(12).fill(0);
-          const winsByCount = [0, 0, 0]; // For 3, 4, 5 of a kind
 
           for (let i = 0; i < 1000000; i++) {
                this.betAmount = parseFloat(this.betInput.value);
@@ -635,46 +773,51 @@ class MayanSlotGame {
                // Generate spin result
                this.fastSpin();
 
-               const winAmount = this.checkWinsNoUI(this.betAmount);
-               totalWin += winAmount;
-               if (winAmount > 0) {
-                    // Track wins by symbol
-                    for (let sym = 0; sym < 12; sym++) {
-                         if (this.display[0][0] === sym || this.display[1][0] === sym || this.display[2][0] === sym) {
-                              winsBySymbol[sym]++;
+               // Check for bonus game trigger
+               let scatterCount = 0;
+               for (let row = 0; row < 3; row++) {
+                    for (let reel = 0; reel < 5; reel++) {
+                         if (this.display[row][reel] === 11) {
+                              scatterCount++;
                          }
-                    }
-
-                    // Track wins by count
-                    const count = this.display.filter(sym => sym === this.display[0][0]).length;
-                    if (count >= 3 && count <= 5) {
-                         winsByCount[count - 3]++;
                     }
                }
 
+               let winAmount = 0;
+               if (scatterCount >= 11) {
+                    // Bonus game triggered
+                    bonusTriggered++;
+                    winAmount = this.simulateBonusNoUI(this.betAmount);
+               } else {
+                    // Get win amount
+                    winAmount = this.checkWinsNoUI(this.betAmount);
+
+                    if (winAmount > 0) {
+                         // Track wins by symbol
+                         for (let sym = 0; sym < 12; sym++) {
+                              if (this.display[0][0] === sym || this.display[1][0] === sym || this.display[2][0] === sym) {
+                                   winsBySymbol[sym]++;
+                              }
+                         }
+                    }
+               }
+
+               totalWin += winAmount;
           }
-
-
 
           // Output detailed results
           this.logMessage(`Diagnostic test completed.`);
           this.logMessage(`Total bet: ${totalBet.toFixed(2)}`);
           this.logMessage(`Total win: ${totalWin.toFixed(2)}`);
           this.logMessage(`RTP: ${(totalWin / totalBet * 100).toFixed(2)}%`);
+          this.logMessage(`Bonus Game Triggered: ${bonusTriggered} times`);
 
           // Output wins by symbol
           console.log("Wins by symbol:");
-          for (let sym = 0; sym < 12; sym++) {
+          for (let sym = 0; sym < 11; sym++) {
                if (winsBySymbol[sym] > 0) {
                     console.log(`${this.symbols[sym]}: ${winsBySymbol[sym]} wins`);
                }
-          }
-
-          // Output wins by match count
-          console.log("Wins by match count:");
-          const matchLabels = ["3 of a kind", "4 of a kind", "5 of a kind"];
-          for (let i = 0; i < 3; i++) {
-               console.log(`${matchLabels[i]}: ${winsByCount[i]} wins`);
           }
 
           // Re-enable controls
@@ -683,6 +826,8 @@ class MayanSlotGame {
           this.testSpinButton.disabled = false;
           this.simulateButton.disabled = false;
           this.runDiagButton.disabled = false;
+          this.bonusGameButton.disabled = false;
+          this.betInput.disabled = false;
 
           this.winDisplay.textContent = 'Diagnostic test done.';
           this.paylineDisplay.textContent = `Diagnostic test has completed.`;
@@ -781,6 +926,8 @@ class MayanSlotGame {
           this.testSpinButton.disabled = true;
           this.simulateButton.disabled = true;
           this.runDiagButton.disabled = true;
+          this.bonusGameButton.disabled = true;
+          this.betInput.disabled = true;
 
           // Reset RTP tracking for this test session
           this.RTPBet = 0;
@@ -791,6 +938,7 @@ class MayanSlotGame {
           const reelLengths = this.reels.map(reel => reel.length);
           let combinationsCount = 0;
           let winningCombinations = 0;
+          let bonusTriggered = 0;
 
           // Process combinations in batches to prevent UI freezing
           const processBatch = () => {
@@ -802,14 +950,40 @@ class MayanSlotGame {
                     for (let reel = 0; reel < 5; reel++) {
                          for (let pos = 0; pos < 3; pos++) {
                               const reelPos = (positions[reel] + pos) % reelLengths[reel];
+                              const symbolId = this.reels[reel][reelPos];
                               this.display[pos][reel] = this.reels[reel][reelPos];
+
+                              if (symbolId === 11) {
+                                   const multiplier = this.getRandomMultiplier();
+                                   this.setCoinMultiplier(pos, reel, multiplier);
+                              }
+                         }
+                    }
+
+                    // Check for bonus game trigger
+                    let scatterCount = 0;
+                    for (let row = 0; row < 3; row++) {
+                         for (let reel = 0; reel < 5; reel++) {
+                              if (this.display[row][reel] === 11) {
+                                   scatterCount++;
+                              }
                          }
                     }
 
                     // Check for wins
                     const betAmount = parseFloat(this.betInput.value) || 2.0;
                     this.RTPBet += betAmount;
-                    const winAmount = this.checkWinsNoUI(betAmount);
+
+                    let winAmount = 0;
+                    if (scatterCount >= 11) {
+                         // Bonus game triggered
+                         bonusTriggered++;
+                         winAmount = this.simulateBonusNoUI(betAmount);
+                    } else {
+                         // Get win amount
+                         winAmount = this.checkWinsNoUI(betAmount);
+                    }
+
                     this.RTPWin += winAmount;
 
                     if (winAmount > 0) {
@@ -850,6 +1024,7 @@ class MayanSlotGame {
                     this.logMessage(`Simulation completed.`, false);
                     this.logMessage(`Total combinations tested: ${combinationsCount}`, false);
                     this.logMessage(`Winning combinations: ${winningCombinations} (${(winningCombinations / combinationsCount * 100).toFixed(2)}%)`, false);
+                    this.logMessage(`Bonus Game Triggered: ${bonusTriggered} times`, false);
                     this.logMessage(`RTP: ${RTP.toFixed(2)}%`, false);
                     this.logMessage(`Total Won: ${this.RTPWin.toFixed(2)}`, false);
                     this.logMessage(`Total Bet: ${this.RTPBet.toFixed(2)}`, false);
@@ -860,6 +1035,8 @@ class MayanSlotGame {
                     this.testSpinButton.disabled = false;
                     this.simulateButton.disabled = false;
                     this.runDiagButton.disabled = false;
+                    this.bonusGameButton.disabled = false;
+                    this.betInput.disabled = false;
 
                     // Reset UI to default view
                     this.setDefaultDisplay();
@@ -886,6 +1063,340 @@ class MayanSlotGame {
           // Limit log entries
           while (this.log.children.length > 50) {
                this.log.removeChild(this.log.firstChild);
+          }
+     }
+
+     async handleBonusGame() {
+          // Enter bonus game
+          this.inBonusGame = true;
+          this.bonusFreeSpins = 3;
+          this.betAmount = parseFloat(this.betInput.value) || 2.0;
+
+          // Change UI to purple
+          document.body.classList.add('bonus-mode');
+          this.container.classList.add('bonus-mode');
+
+          // Show coins instead of numbers
+          const getCoinEmojis = (spins) => {
+               return '🪙'.repeat(spins);
+          }
+
+          // Display bonus game message
+          this.winDisplay.textContent = `BONUS GAME! ${getCoinEmojis(this.bonusFreeSpins)}`;
+          this.paylineDisplay.textContent = 'BONUS GAME IN PROGRESS...';
+          this.logMessage("🎉 BONUS GAME ACTIVATED! 🎉", true);
+
+          // Track coins already on the table
+          this.bonusCoins = [];
+          for (let row = 0; row < 3; row++) {
+               for (let reel = 0; reel < 5; reel++) {
+                    if (this.display[row][reel] === 11) {
+                         // Use the already stored multiplier instead of generating a new one
+                         const existingMultiplier = this.getCoinMultiplier(row, reel);
+                         this.bonusCoins.push({
+                              row,
+                              reel,
+                              multiplier: existingMultiplier
+                         });
+                    }
+               }
+          }
+
+          // Update UI to show existing coins with correct multipliers
+          this.updateDisplayUI();
+
+          // Bonus game loop
+          while (this.bonusFreeSpins > 0 && this.bonusCoins.length < 15) {
+               await this.bonusSpin();
+               this.bonusFreeSpins--;
+
+               // Update display
+               this.winDisplay.textContent = `BONUS GAME! ${getCoinEmojis(this.bonusFreeSpins)}`;
+
+               // Small delay between spins
+               await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+
+          // Calculate total win
+          let totalBonusWin = 0;
+          for (const coin of this.bonusCoins) {
+               totalBonusWin += this.betAmount * coin.multiplier;
+          }
+
+          // Add Grand Jackpot if all positions filled
+          if (this.bonusCoins.length === 15) {
+               totalBonusWin += this.betAmount * this.GrandJackpot;
+               this.logMessage(`🏆 GRAND JACKPOT! +${(this.betAmount * this.GrandJackpot).toFixed(2)}`, true);
+          }
+
+          // Update balance and display
+          this.balance += totalBonusWin;
+          this.totalWon += totalBonusWin;
+          this.updateBalanceDisplay();
+          this.winDisplay.textContent = `Bonus Win: ${totalBonusWin.toFixed(2)}`;
+          this.paylineDisplay.textContent = `Bonus game completed! Win: ${totalBonusWin.toFixed(2)}`;
+          this.logMessage(`Bonus Game Ended! Total Win: ${totalBonusWin.toFixed(2)}`, true);
+
+          // Reset bonus game state
+          this.inBonusGame = false;
+          document.body.classList.remove('bonus-mode');
+          this.container.classList.remove('bonus-mode');
+
+          return totalBonusWin;
+     }
+
+     async bonusSpin() {
+
+          // Update bet amount from input
+          this.betAmount = parseFloat(this.betInput.value) || 2.0;
+
+          // Find empty positions
+          const emptyPositions = [];
+          for (let row = 0; row < 3; row++) {
+               for (let reel = 0; reel < 5; reel++) {
+                    // Check if position doesn't have a coin
+                    if (!this.bonusCoins.some(coin => coin.row === row && coin.reel === reel)) {
+                         emptyPositions.push({ row, reel });
+                    }
+               }
+          }
+
+          // Reset all empty positions to show spinning animation
+          for (const pos of emptyPositions) {
+               const symbolElement = document.getElementById(`symbol-${pos.row}-${pos.reel}`);
+               if (symbolElement) {
+                    symbolElement.textContent = '?';
+                    symbolElement.className = 'symbol spinning';
+               }
+          }
+
+          // Short delay to show spinning animation
+          await new Promise(resolve => setTimeout(resolve, 1200));
+
+          // Randomly select positions that will get coins based on probability
+          const newCoins = [];
+          for (const pos of emptyPositions) {
+               // Get probability based on current coin count
+               const probability = this.scatterProbability[this.bonusCoins.length + newCoins.length + 1] || 0.01;
+
+               if (Math.random() < probability) {
+                    const multiplier = this.getRandomMultiplier();
+
+                    // Store the multiplier for this position
+                    this.setCoinMultiplier(pos.row, pos.reel, multiplier);
+
+                    newCoins.push({
+                         row: pos.row,
+                         reel: pos.reel,
+                         multiplier: multiplier
+                    });
+
+                    // If we got a new coin, reset free spins
+                    this.bonusFreeSpins = 4;
+                    this.logMessage(`New coin found! Free spins reset to 3`, false);
+               }
+          }
+
+          // Add new coins to the bonus coins array
+          this.bonusCoins.push(...newCoins);
+
+          // Update display to show coins
+          for (const coin of this.bonusCoins) {
+               const symbolElement = document.getElementById(`symbol-${coin.row}-${coin.reel}`);
+               const value = coin.multiplier * this.betAmount;
+               symbolElement.textContent = `${this.symbols[11]} x${value.toFixed(2)}`;
+               symbolElement.classList.add('scatter', 'bonus-coin');
+          }
+
+          // Clear empty positions that didn't get coins
+          for (const pos of emptyPositions) {
+               if (!newCoins.some(coin => coin.row === pos.row && coin.reel === pos.reel)) {
+                    const symbolElement = document.getElementById(`symbol-${pos.row}-${pos.reel}`);
+                    if (symbolElement) {
+                         symbolElement.textContent = '❌';
+                         symbolElement.className = 'symbol';
+                    }
+               }
+          }
+
+          return newCoins.length > 0;
+     }
+
+     getRandomMultiplier() {
+          const rand = Math.random();
+          let cumulativeProbability = 0;
+
+          for (const [multiplier, probability] of Object.entries(this.scatterMultiplierChance)) {
+               cumulativeProbability += probability;
+               if (rand < cumulativeProbability) {
+                    return parseFloat(multiplier);
+               }
+          }
+
+          // Default to lowest multiplier if something goes wrong
+          return 1;
+     }
+
+     // Simulate bonus game with UI updates
+     async simulateBonusGame() {
+          if (this.isSpinning) return;
+
+          // Get number of bonus games to simulate test spin input
+          const bonusGames = parseInt(this.testSpinInput.value) || 10;
+          if (bonusGames < 1) return;
+
+          this.logMessage(`Starting ${bonusGames} Bonus Games Simulations`);
+
+          // Disable controls during bonus game
+          this.isSpinning = true;
+          this.spinButton.disabled = true;
+          this.testSpinButton.disabled = true;
+          this.simulateButton.disabled = true;
+          this.runDiagButton.disabled = true;
+          this.bonusGameButton.disabled = true;
+          this.betInput.disabled = true;
+
+          // Clear previous win displays
+          this.winDisplay.textContent = 'Starting Bonus Game...';
+          this.paylineDisplay.textContent = 'Simulating Bonus Game...';
+
+          // Clear any previous winning highlights
+          document.querySelectorAll('.winning').forEach(el => {
+               el.classList.remove('winning');
+          });
+
+          // Generate random scatter positions (11-14 scatters)
+          const scatterCount = Math.floor(Math.random() * 4) + 11;
+          const scatterPositions = [];
+
+          // Reset display first
+          this.setDefaultDisplay();
+
+          // Initialize bet amount
+          this.betAmount = parseFloat(this.betInput.value) || 2.0;
+
+          // Place scatters randomly with multipliers
+          for (let i = 0; i < scatterCount; i++) {
+               let row, reel;
+               do {
+                    row = Math.floor(Math.random() * 3);
+                    reel = Math.floor(Math.random() * 5);
+               } while (this.display[row][reel] === 11);
+
+               this.display[row][reel] = 11;
+
+               // Generate and store multiplier for this coin
+               const multiplier = this.getRandomMultiplier();
+               this.setCoinMultiplier(row, reel, multiplier);
+
+               scatterPositions.push([row, reel]);
+          }
+
+          // Update UI to show initial scatters
+          this.updateDisplayUI();
+
+          // Highlight scatter symbols
+          for (const [row, col] of scatterPositions) {
+               const symbolElement = document.getElementById(`symbol-${row}-${col}`);
+               if (symbolElement) {
+                    symbolElement.classList.add('scatter', 'bonus-coin');
+               }
+          }
+
+          this.logMessage(`${scatterCount} Scatter symbols! Bonus game triggered!`, true);
+
+          // Start bonus game after a short delay
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          const bonusWin = await this.handleBonusGame();
+
+          // Re-enable controls
+          this.isSpinning = false;
+          this.spinButton.disabled = false;
+          this.testSpinButton.disabled = false;
+          this.simulateButton.disabled = false;
+          this.runDiagButton.disabled = false;
+          this.bonusGameButton.disabled = false;
+          this.betInput.disabled = false;
+
+          return bonusWin;
+     }
+
+     // Simulate bonus game without UI updates
+     simulateBonusNoUI(betAmount = 2.0) {
+          // Count the number of coins
+          let coinCount = 0;
+          const coins = [];
+
+          for (let row = 0; row < 3; row++) {
+               for (let reel = 0; reel < 5; reel++) {
+                    if (this.display[row][reel] === 11) {
+                         const multiplier = this.getCoinMultiplier(row, reel);
+                         coins.push({ multiplier: multiplier });
+                         coinCount++;
+                    }
+               }
+          }
+
+          //Simulate bonus spins
+          let bonusFreeSpins = 3;
+          while (bonusFreeSpins > 0 && coinCount < 15) {
+               const emptyPositions = 15 - coinCount;
+               let newCoins = 0;
+
+               for (let i = 0; i < emptyPositions; i++) {
+                    const probability = this.scatterProbability[coinCount + newCoins + 1] || 0.01;
+                    if (Math.random() < probability) {
+                         const multiplier = this.getRandomMultiplier();
+                         coins.push({ multiplier: multiplier });
+                         newCoins++;
+                         bonusFreeSpins = 3;
+                    }
+               }
+
+               coinCount += newCoins;
+               if (newCoins === 0) {
+                    bonusFreeSpins--;
+               }
+          }
+
+          // Calculate total win
+          let totalWin = 0;
+          for (const coin of coins) {
+               totalWin += betAmount * coin.multiplier;
+          }
+
+          if (coinCount === 15) {
+               totalWin += betAmount * this.GrandJackpot;
+          }
+
+          return totalWin;
+     }
+
+     // Make sure this method exists to update the UI
+     updateDisplayUI() {
+          for (let row = 0; row < 3; row++) {
+               for (let reel = 0; reel < 5; reel++) {
+                    const symbolId = this.display[row][reel];
+                    const symbolElement = document.getElementById(`symbol-${row}-${reel}`);
+
+                    if (symbolElement) {
+                         // Handle coins with their stored multipliers
+                         if (symbolId === 11) {
+                              const multiplier = this.getCoinMultiplier(row, reel);
+                              const value = this.betAmount * multiplier;
+                              symbolElement.textContent = `${this.symbols[11]} x${value.toFixed(2)}`;
+                         } else {
+                              symbolElement.textContent = this.getShortSymbolName(symbolId);
+                         }
+
+                         // Reset classes
+                         symbolElement.className = 'symbol';
+
+                         // Add special styling
+                         if (symbolId === 0) symbolElement.classList.add('wild');
+                         if (symbolId === 11) symbolElement.classList.add('scatter', 'bonus-coin');
+                    }
+               }
           }
      }
 }

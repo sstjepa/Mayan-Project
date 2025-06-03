@@ -208,6 +208,25 @@ button {
      cursor: not-allowed;
 }
 
+.bonus-game-button {
+     background: linear-gradient(to bottom, #9932cc, #8a2be2);
+     color: #fff;
+     font-weight: bold;
+     font-size: 1.2em;
+     padding: 12px 25px;
+     margin-left: 10px;
+}
+
+.bonus-game-button:hover {
+     transform: scale(1.05);
+     box-shadow: 0 0 10px rgba(153, 50, 204, 0.7);
+}
+
+.bonus-game-button:disabled {
+     background: #888;
+     cursor: not-allowed;
+}
+
 input {
      padding: 8px;
      border-radius: 5px;
@@ -237,4 +256,38 @@ input {
 
 .win-log {
      color: #ffd700;
+}
+
+/* Add bonus game styling */
+.bonus-mode {
+     background: linear-gradient(to bottom, #4a1152, #7b2cbf) !important;
+}
+
+.bonus-mode .reels-container {
+     background: #3a0d40;
+     box-shadow: 0 0 20px rgba(186, 104, 200, 0.5);
+}
+
+.bonus-mode .game-title {
+     background: linear-gradient(to right, #e100ff, #7f00ff);
+     background-clip: text;
+     -webkit-background-clip: text;
+}
+
+.bonus-coin {
+     background: linear-gradient(135deg, #ffd700, #ff00ff) !important;
+     animation: pulse-bonus 1.5s infinite alternate;
+     box-shadow: 0 0 15px rgba(255, 0, 255, 0.7);
+}
+
+@keyframes pulse-bonus {
+     from {
+          transform: scale(1);
+          box-shadow: 0 0 10px rgba(255, 0, 255, 0.7);
+     }
+
+     to {
+          transform: scale(1.08);
+          box-shadow: 0 0 20px rgba(255, 0, 255, 0.9);
+     }
 }
